@@ -13,6 +13,7 @@ walking.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import tempfile
 import time
@@ -20,6 +21,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import genesis as gs
+
+TRAJECTORY_COLUMNS = ("t", "vx", "vz", "vp", "ql", "qr", "vxd", "vzd", "vpd", "qld", "qrd")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 URDF_TEMPLATE_PATH = REPO_ROOT / "assets" / "compass.urdf.tmpl"
@@ -58,6 +61,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--viewer", action="store_true", help="Interactive viewer instead of mp4")
     parser.add_argument("--seconds", type=float, default=2.0, help="Simulated duration")
     parser.add_argument("--dt", type=float, default=0.001, help="Physics timestep (1ms default)")
+    parser.add_argument(
+        "--log-every",
+        type=int,
+        default=1,
+        help="Sample trajectory every N physics steps (1 = every step)",
+    )
 
     g = parser.add_argument_group("walker design parameters")
     g.add_argument("--leg-length", type=float, default=d.leg_length, help="Leg length [m]")
@@ -181,14 +190,38 @@ def main() -> None:
     n_steps = int(args.seconds / args.dt)
     render_every = max(1, round((1.0 / 60) / args.dt))
 
+    out_dir = Path("data/runs") / time.strftime("%Y%m%d_%H%M%S")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[heron] output dir = {out_dir}")
+
     if cam is not None:
         cam.start_recording()
+
+    trajectory: list[dict] = []
 
     t0 = time.perf_counter()
     for i in range(n_steps):
         scene.step()
         if cam is not None and i % render_every == 0:
             cam.render()
+        if i % args.log_every == 0:
+            q = walker.get_dofs_position(dofs_idx_local=dofs_idx).cpu().numpy()
+            qd = walker.get_dofs_velocity(dofs_idx_local=dofs_idx).cpu().numpy()
+            trajectory.append(
+                {
+                    "t": i * args.dt,
+                    "vx": float(q[0]),
+                    "vz": float(q[1]),
+                    "vp": float(q[2]),
+                    "ql": float(q[3]),
+                    "qr": float(q[4]),
+                    "vxd": float(qd[0]),
+                    "vzd": float(qd[1]),
+                    "vpd": float(qd[2]),
+                    "qld": float(qd[3]),
+                    "qrd": float(qd[4]),
+                }
+            )
     elapsed = time.perf_counter() - t0
     sim_seconds = n_steps * args.dt
     print(f"[heron] simulated {sim_seconds:.2f}s ({n_steps} steps) in {elapsed:.2f}s wall-clock")
@@ -203,12 +236,51 @@ def main() -> None:
     )
     print(f"[heron] final hip link pos = {final_hip_link_pos}")
 
+    video_rel_path: str | None = None
     if cam is not None:
-        out_dir = Path("data/runs") / time.strftime("%Y%m%d_%H%M%S")
-        out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / "compass.mp4"
-        cam.stop_recording(save_to_filename=str(out_path), fps=60)
-        print(f"[heron] video saved to {out_path}")
+        video_path = out_dir / "compass.mp4"
+        cam.stop_recording(save_to_filename=str(video_path), fps=60)
+        video_rel_path = video_path.name
+        print(f"[heron] video saved to {video_path}")
+
+    traj_path = out_dir / "trajectory.jsonl"
+    with traj_path.open("w") as f:
+        for row in trajectory:
+            f.write(json.dumps(row) + "\n")
+    print(f"[heron] trajectory: {len(trajectory)} samples -> {traj_path}")
+
+    meta = {
+        "params": asdict(params),
+        "initial_conditions": {
+            "stance_q": args.stance_q,
+            "swing_q": args.swing_q,
+            "stance_qdot": args.stance_qdot,
+            "swing_qdot": args.swing_qdot,
+            "hip_z": hip_z,
+        },
+        "sim": {
+            "dt": args.dt,
+            "seconds": args.seconds,
+            "n_steps": n_steps,
+            "log_every": args.log_every,
+            "gravity": list(gravity),
+            "plane_friction": args.plane_friction,
+            "rigid_options": {"enable_self_collision": False},
+        },
+        "result": {
+            "wall_seconds": elapsed,
+            "final_virtual_x": float(final_vx[0]),
+            "final_virtual_z": float(final_vz[0]),
+            "final_virtual_pitch": float(final_vp[0]),
+            "final_hip_link_pos": [float(v) for v in final_hip_link_pos],
+        },
+        "trajectory_columns": list(TRAJECTORY_COLUMNS),
+        "video": video_rel_path,
+    }
+    meta_path = out_dir / "meta.json"
+    with meta_path.open("w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"[heron] meta -> {meta_path}")
 
     Path(tmp_urdf_path).unlink(missing_ok=True)
 
