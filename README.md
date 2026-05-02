@@ -17,7 +17,7 @@
 
 - **物理シミュレーション:** Genesis 0.4.x（Apple Metal対応、M4 Mac miniでネイティブ動作）
 - **Quality Diversity:** pyribs（MAP-Elites）
-- **言語/ランタイム:** Python 3.11+ / uv
+- **言語/ランタイム:** Python 3.12+ / uv
 - **可視化:** Phase 4で別途検討（Go + WebGL予定、別リポジトリで切り出す可能性あり）
 
 ## 開発フェーズ
@@ -40,10 +40,12 @@ Claude Codeとの対話協調開発。研究的観察フェーズはぽんぽこ
 
 ```bash
 uv sync
-uv run python scripts/fall_test.py
+uv run python scripts/fall_test.py             # headless, mp4 を data/runs/<timestamp>/fall.mp4 に出力
+uv run python scripts/fall_test.py --viewer    # 対話ビューアを起動
 ```
 
-（Phase 0完了時点での想定。実際のスクリプト名は実装時に確定。）
+起動ログ冒頭で `Running on [Apple M4 Pro] with backend gs.metal` を確認すること。
+Apple Metal が選ばれずに CPU フォールバックしていたら GOALS.md の Phase 0 の完了条件を満たしていない。
 
 ## ライセンス
 
