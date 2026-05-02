@@ -2,13 +2,62 @@
 <!--
   Compass Gait Walker template.
   Substituted by scripts/walk_compass.py via str.format(**asdict(params), ...).
-  Placeholders: leg_length, leg_length_half, leg_radius, leg_mass, leg_inertia,
-                hip_mass, foot_radius, foot_mass.
-  Frame: x = forward, y = lateral (hip joint axis), z = up. Hip is the base link.
+  Frame: x = forward, y = lateral (hip joint axis), z = up.
+
+  Root chain: world_base (fixed) -> virtual_x (prismatic x) -> virtual_z (prismatic z)
+              -> virtual_pitch (revolute about y) -> hip. This restricts the walker
+              to the x-z (sagittal) plane; the URDF must be loaded with fixed=True so
+              that world_base anchors the chain.
 -->
 <robot name="compass_walker">
 
-  <!-- Base link: point mass at the hip -->
+  <!-- Anchored to world; mass/inertia are nominal nonzero values (Genesis warns on zeros). -->
+  <link name="world_base">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <link name="virtual_x_link">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+  <joint name="virtual_x" type="prismatic">
+    <parent link="world_base"/>
+    <child link="virtual_x_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-100" upper="100" effort="0" velocity="100"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <link name="virtual_z_link">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+  <joint name="virtual_z" type="prismatic">
+    <parent link="virtual_x_link"/>
+    <child link="virtual_z_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-100" upper="100" effort="0" velocity="100"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="virtual_pitch" type="continuous">
+    <parent link="virtual_z_link"/>
+    <child link="hip"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <!-- Hip: point mass; pose set by virtual_x/virtual_z/virtual_pitch -->
   <link name="hip">
     <visual>
       <geometry><sphere radius="0.04"/></geometry>
