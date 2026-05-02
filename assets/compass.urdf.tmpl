@@ -1,0 +1,118 @@
+<?xml version="1.0"?>
+<!--
+  Compass Gait Walker template.
+  Substituted by scripts/walk_compass.py via str.format(**asdict(params), ...).
+  Placeholders: leg_length, leg_length_half, leg_radius, leg_mass, leg_inertia,
+                hip_mass, foot_radius, foot_mass.
+  Frame: x = forward, y = lateral (hip joint axis), z = up. Hip is the base link.
+-->
+<robot name="compass_walker">
+
+  <!-- Base link: point mass at the hip -->
+  <link name="hip">
+    <visual>
+      <geometry><sphere radius="0.04"/></geometry>
+      <material name="hip_red"><color rgba="0.85 0.15 0.15 1.0"/></material>
+    </visual>
+    <inertial>
+      <mass value="{hip_mass}"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <!-- Left leg (cylinder hanging below the hip; angle controlled by hip_left joint) -->
+  <link name="left_leg">
+    <visual>
+      <geometry><cylinder radius="{leg_radius}" length="{leg_length}"/></geometry>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+      <material name="leg_blue"><color rgba="0.15 0.35 0.85 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{leg_radius}" length="{leg_length}"/></geometry>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{leg_mass}"/>
+      <inertia ixx="{leg_inertia}" ixy="0" ixz="0" iyy="{leg_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="left_foot">
+    <visual>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+      <material name="foot_dark"><color rgba="0.2 0.2 0.2 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="{foot_mass}"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <joint name="hip_left" type="continuous">
+    <parent link="hip"/>
+    <child link="left_leg"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="left_ankle" type="fixed">
+    <parent link="left_leg"/>
+    <child link="left_foot"/>
+    <origin xyz="0 0 -{leg_length}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Right leg (mirror of left) -->
+  <link name="right_leg">
+    <visual>
+      <geometry><cylinder radius="{leg_radius}" length="{leg_length}"/></geometry>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+      <material name="leg_green"><color rgba="0.15 0.85 0.35 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{leg_radius}" length="{leg_length}"/></geometry>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{leg_mass}"/>
+      <inertia ixx="{leg_inertia}" ixy="0" ixz="0" iyy="{leg_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{leg_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="right_foot">
+    <visual>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+      <material name="foot_dark"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="{foot_mass}"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <joint name="hip_right" type="continuous">
+    <parent link="hip"/>
+    <child link="right_leg"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="right_ankle" type="fixed">
+    <parent link="right_leg"/>
+    <child link="right_foot"/>
+    <origin xyz="0 0 -{leg_length}" rpy="0 0 0"/>
+  </joint>
+
+</robot>
