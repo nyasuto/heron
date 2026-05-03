@@ -53,12 +53,12 @@ def sample_ic(rng: random.Random) -> InitialConditions:
     )
 
 
-def _worker_init() -> None:
+def _worker_init(backend_name: str = "metal") -> None:
     """Initialize Genesis once per worker process.
 
+    backend_name: 'metal' (MPS GPU on Apple Silicon) or 'cpu' (Taichi CPU backend).
     Headless workaround: skip Visualizer.build() to avoid pyglet screen-detect
-    errors on a Mac with no attached display / locked screen. Safe because
-    sample workers never render (record_video=False).
+    errors on a Mac with no attached display / locked screen.
     """
     import genesis as gs
     import genesis.vis.visualizer
@@ -67,7 +67,8 @@ def _worker_init() -> None:
         self._is_built = True
 
     genesis.vis.visualizer.Visualizer.build = _noop_build  # type: ignore[assignment]
-    gs.init(backend=gs.metal)
+    backend = {"metal": gs.metal, "cpu": gs.cpu, "gpu": gs.gpu}[backend_name]
+    gs.init(backend=backend)
 
 
 def _run_one(task: tuple[int, KneedParams, InitialConditions, SimConfig]) -> tuple:
@@ -90,6 +91,12 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Worker processes (spawn-context, default 10 = M4 Pro performance cores). "
         "1 = sequential in-process.",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["metal", "cpu", "gpu"],
+        default="metal",
+        help="Genesis backend: metal (MPS, default), cpu (Taichi CPU), or gpu (auto)",
     )
     return parser.parse_args()
 
@@ -131,11 +138,15 @@ def main() -> None:
 
     if args.n_procs <= 1:
         # Sequential path (also handy for debugging without multiprocessing noise).
-        _worker_init()
+        _worker_init(args.backend)
         results_iter = (_run_one(t) for t in tasks)
     else:
         ctx = mp.get_context("spawn")
-        pool = ctx.Pool(processes=args.n_procs, initializer=_worker_init)
+        pool = ctx.Pool(
+            processes=args.n_procs,
+            initializer=_worker_init,
+            initargs=(args.backend,),
+        )
         results_iter = pool.imap_unordered(_run_one, tasks)
 
     try:
