@@ -54,9 +54,19 @@ def sample_ic(rng: random.Random) -> InitialConditions:
 
 
 def _worker_init() -> None:
-    """Initialize Genesis once per worker process."""
-    import genesis as gs
+    """Initialize Genesis once per worker process.
 
+    Headless workaround: skip Visualizer.build() to avoid pyglet screen-detect
+    errors on a Mac with no attached display / locked screen. Safe because
+    sample workers never render (record_video=False).
+    """
+    import genesis as gs
+    import genesis.vis.visualizer
+
+    def _noop_build(self) -> None:
+        self._is_built = True
+
+    genesis.vis.visualizer.Visualizer.build = _noop_build  # type: ignore[assignment]
     gs.init(backend=gs.metal)
 
 

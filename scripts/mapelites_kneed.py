@@ -175,8 +175,21 @@ def evaluate_one(
 
 
 def _worker_init() -> None:
-    import genesis as gs
+    """Initialize Genesis once per worker.
 
+    Headless workaround: monkey-patch Visualizer.build() to a no-op so a
+    detached display (locked screen, no monitor on the Mac mini, etc.) does
+    not break scene.build() with `IndexError: list index out of range` from
+    pyglet's cocoa.get_default_screen(). Safe here because evaluate_one only
+    runs with record_video=False — workers never call cam.render().
+    """
+    import genesis as gs
+    import genesis.vis.visualizer
+
+    def _noop_build(self) -> None:
+        self._is_built = True
+
+    genesis.vis.visualizer.Visualizer.build = _noop_build  # type: ignore[assignment]
     gs.init(backend=gs.metal)
 
 
