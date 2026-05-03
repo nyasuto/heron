@@ -174,8 +174,12 @@ def evaluate_one(
     return (idx, objective, speed, efficiency, info)
 
 
-def _worker_init() -> None:
+def _worker_init(backend_name: str = "cpu") -> None:
     """Initialize Genesis once per worker.
+
+    backend_name: 'cpu' (default for sampling, much faster on M4 Pro than MPS
+    for single-walker per process — see GENESIS_BEST_PRACTICES.md), 'metal',
+    or 'gpu'. Use 'metal' only if you are also using batched envs.
 
     Headless workaround: monkey-patch Visualizer.build() to a no-op so a
     detached display (locked screen, no monitor on the Mac mini, etc.) does
@@ -190,7 +194,8 @@ def _worker_init() -> None:
         self._is_built = True
 
     genesis.vis.visualizer.Visualizer.build = _noop_build  # type: ignore[assignment]
-    gs.init(backend=gs.metal)
+    backend = {"cpu": gs.cpu, "metal": gs.metal, "gpu": gs.gpu}[backend_name]
+    gs.init(backend=backend)
 
 
 def parse_args() -> argparse.Namespace:
@@ -259,6 +264,14 @@ def parse_args() -> argparse.Namespace:
         default=10,
         help="Worker processes (default 10 = M4 Pro performance cores); 1 = sequential in-process",
     )
+    parser.add_argument(
+        "--backend",
+        choices=["cpu", "metal", "gpu"],
+        default="cpu",
+        help="Genesis backend. Default 'cpu' is ~6.8x faster than 'metal' for the "
+        "Heron-style multiprocess + single-walker pattern (see GENESIS_BEST_PRACTICES.md). "
+        "Use 'metal' only if you also adopt batched envs (scene.build(n_envs=N)).",
+    )
     return parser.parse_args()
 
 
@@ -325,11 +338,15 @@ def main() -> None:
     print(f"[heron] target {args.iterations} iters, {args.n_procs} procs, output -> {out_dir}")
 
     if args.n_procs <= 1:
-        _worker_init()
+        _worker_init(args.backend)
         pool = None
     else:
         ctx = mp.get_context("spawn")
-        pool = ctx.Pool(processes=args.n_procs, initializer=_worker_init)
+        pool = ctx.Pool(
+            processes=args.n_procs,
+            initializer=_worker_init,
+            initargs=(args.backend,),
+        )
 
     eval_log: list[dict] = []
     fell_count = 0
