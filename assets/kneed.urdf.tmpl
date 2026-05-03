@@ -1,0 +1,221 @@
+<?xml version="1.0"?>
+<!--
+  Kneed Walker template.
+  Substituted by scripts/walk_kneed.py via str.format(**asdict(params), ...).
+  Frame: x = forward, y = lateral (joint axis), z = up.
+
+  Root chain: world_base (fixed) -> virtual_x (prismatic x)
+              -> virtual_z (prismatic z) -> virtual_pitch (revolute about y) -> hip
+  Each leg : hip -> SIDE_thigh -> (knee w/ limit) SIDE_shin -> SIDE_foot (fixed)
+
+  Knee limit: lower=0 prevents over-extension (the McGeer-style mechanical stop),
+  upper=knee_limit_upper bounds flexion.
+-->
+<robot name="kneed_walker">
+
+  <!-- Anchored to world; nominal nonzero inertia (Genesis warns on zeros). -->
+  <link name="world_base">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+
+  <link name="virtual_x_link">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+  <joint name="virtual_x" type="prismatic">
+    <parent link="world_base"/>
+    <child link="virtual_x_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-100" upper="100" effort="0" velocity="100"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <link name="virtual_z_link">
+    <inertial>
+      <mass value="1e-6"/>
+      <inertia ixx="1e-9" ixy="0" ixz="0" iyy="1e-9" iyz="0" izz="1e-9"/>
+    </inertial>
+  </link>
+  <joint name="virtual_z" type="prismatic">
+    <parent link="virtual_x_link"/>
+    <child link="virtual_z_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-100" upper="100" effort="0" velocity="100"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="virtual_pitch" type="continuous">
+    <parent link="virtual_z_link"/>
+    <child link="hip"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <!-- Hip: point mass; pose set by virtual_x/virtual_z/virtual_pitch -->
+  <link name="hip">
+    <visual>
+      <geometry><sphere radius="0.04"/></geometry>
+      <material name="hip_red"><color rgba="0.85 0.15 0.15 1.0"/></material>
+    </visual>
+    <inertial>
+      <mass value="{hip_mass}"/>
+      <inertia ixx="1e-5" ixy="0" ixz="0" iyy="1e-5" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <!-- Left leg: thigh -> shin (knee) -> foot -->
+  <link name="left_thigh">
+    <visual>
+      <geometry><cylinder radius="{thigh_radius}" length="{thigh_length}"/></geometry>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+      <material name="thigh_blue"><color rgba="0.15 0.35 0.85 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{thigh_radius}" length="{thigh_length}"/></geometry>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{thigh_mass}"/>
+      <inertia ixx="{thigh_inertia}" ixy="0" ixz="0" iyy="{thigh_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="left_shin">
+    <visual>
+      <geometry><cylinder radius="{shin_radius}" length="{shin_length}"/></geometry>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+      <material name="shin_cyan"><color rgba="0.35 0.65 0.85 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{shin_radius}" length="{shin_length}"/></geometry>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{shin_mass}"/>
+      <inertia ixx="{shin_inertia}" ixy="0" ixz="0" iyy="{shin_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="left_foot">
+    <visual>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+      <material name="foot_dark"><color rgba="0.2 0.2 0.2 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="{foot_mass}"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <joint name="hip_left" type="continuous">
+    <parent link="hip"/>
+    <child link="left_thigh"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="knee_left" type="revolute">
+    <parent link="left_thigh"/>
+    <child link="left_shin"/>
+    <origin xyz="0 0 -{thigh_length}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="{knee_limit_upper}" effort="1000" velocity="100"/>
+    <dynamics damping="{knee_damping}" friction="0.0"/>
+  </joint>
+
+  <joint name="left_ankle" type="fixed">
+    <parent link="left_shin"/>
+    <child link="left_foot"/>
+    <origin xyz="0 0 -{shin_length}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Right leg: same as left but with green -->
+  <link name="right_thigh">
+    <visual>
+      <geometry><cylinder radius="{thigh_radius}" length="{thigh_length}"/></geometry>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+      <material name="thigh_green"><color rgba="0.15 0.85 0.35 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{thigh_radius}" length="{thigh_length}"/></geometry>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{thigh_mass}"/>
+      <inertia ixx="{thigh_inertia}" ixy="0" ixz="0" iyy="{thigh_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{thigh_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="right_shin">
+    <visual>
+      <geometry><cylinder radius="{shin_radius}" length="{shin_length}"/></geometry>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+      <material name="shin_lime"><color rgba="0.55 0.85 0.35 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><cylinder radius="{shin_radius}" length="{shin_length}"/></geometry>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+    </collision>
+    <inertial>
+      <mass value="{shin_mass}"/>
+      <inertia ixx="{shin_inertia}" ixy="0" ixz="0" iyy="{shin_inertia}" iyz="0" izz="1e-5"/>
+      <origin xyz="0 0 -{shin_length_half}" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <link name="right_foot">
+    <visual>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+      <material name="foot_dark"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="{foot_radius}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="{foot_mass}"/>
+      <inertia ixx="1e-7" ixy="0" ixz="0" iyy="1e-7" iyz="0" izz="1e-7"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+    </inertial>
+  </link>
+
+  <joint name="hip_right" type="continuous">
+    <parent link="hip"/>
+    <child link="right_thigh"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.0" friction="0.0"/>
+  </joint>
+
+  <joint name="knee_right" type="revolute">
+    <parent link="right_thigh"/>
+    <child link="right_shin"/>
+    <origin xyz="0 0 -{thigh_length}" rpy="0 0 0"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="{knee_limit_upper}" effort="1000" velocity="100"/>
+    <dynamics damping="{knee_damping}" friction="0.0"/>
+  </joint>
+
+  <joint name="right_ankle" type="fixed">
+    <parent link="right_shin"/>
+    <child link="right_foot"/>
+    <origin xyz="0 0 -{shin_length}" rpy="0 0 0"/>
+  </joint>
+
+</robot>

@@ -91,23 +91,66 @@
 
 膝関節を持つ受動歩行機。前進中は膝がロックされ、後退時にフリーになる。よりリアルな人間の歩行に近い。
 
-### 完了条件
+### 完了条件（再設定 2026-05-03）
 
-- [ ] 膝関節（前進中ロック、後退時フリー）を持つモデルが歩く
-- [ ] Compass Gait と同じ実行インターフェースで動く（`simulate(params, slope)` 形式）
-- [ ] パラメータ空間（もも長、すね長、足長、各部の質量）が dataclass で明示されている
-- [ ] パラメータをランダムにサンプルして100回シミュレートし、生存率と平均歩行距離をログに出せる
-- [ ] 1回のシミュレーションが headless で十分高速に終わる（目標: 1秒以下、Phase 3で1万回回すため）
+Phase 1 と同じ理由（Genesis のフルフィジカルシミュレーションでは
+analytical limit cycle の basin of attraction が狭く、kneed walker では
+compass よりさらに狭い）で、当初の「歩く」を満たすには大規模な探索が必要と判明。
+Phase 3 (MAP-Elites) こそがその探索手法そのものなので、Phase 2 では
+**「Phase 3 を走らせるためのインフラ」を整備すること** に集中する。
+
+- [x] 膝関節 (PD ligament + URDF passive damping) を持つモデルが、
+      stance leg knee を伸展状態でロックする機構が機能する
+- [x] パラメータ空間 (KneedParams dataclass) が明示されている
+- [x] パラメータを CLI で変えられる
+- [x] 歩行軌跡をログに出力できる (trajectory.jsonl + meta.json)
+- [ ] Compass Gait と同じ実行インターフェースで動く `simulate(params, ic)` 純関数
+- [ ] パラメータをランダムにサンプルして 100 回シミュレートし、生存率と
+      平均歩行距離をログに出せる
+- [ ] 1 回のシミュレーションが headless で十分高速に終わる
+      (目標: 数秒以下。Phase 3 でバッチ処理可能なレベル)
+
+### このフェーズで決まったこと
+
+- **膝のロック機構**: McGeer 流の純機械的ストッパー (URDF joint limit のみ) では
+  立位を保てず両膝が屈曲方向に折れた。stance leg の knee に PD ligament
+  (kp/kv で knee=0 へ復元) を毎ステップ印加 + URDF damping を両 knee に入れる
+  ハイブリッド方式を採用。動物の靱帯 (spring) + 関節液 (damper) の物理モデル
+  に対応する。
+- **stance/swing 判定**: 足球 z 座標の比較 + 5 mm のヒステリシス。毎ステップ判定。
+- **PD ゲイン**: kp=500, kv=20 がスタート値。`--knee-kp/--knee-kd` で振れる。
+- **URDF joint effort**: `effort="0"` だと `control_dofs_force` が無効化されるため
+  `effort="1000"` に設定。
+- **WalkerParams の最終形**: `KneedParams` dataclass（脚関連 + `knee_damping`
+  + `knee_limit_upper` + `slope_deg`）。Phase 3 で Genotype として使用予定。
+- **WalkResult**: `trajectory.jsonl` で持つ全 DOF 時系列 + `meta.json` の
+  result ブロックで持つ最終状態。Behavior Descriptor の軸候補は trajectory
+  から後処理で計算。
+
+### 観察知見 (Phase 2 で確認された事実)
+
+- **kneed walker は compass walker よりさらに歩かせにくい**: knee 自由度が
+  増えるぶん, basin of attraction はさらに狭くなる。文献でも McGeer は
+  compass を解析したあと kneed を別論文で扱う構成にしている。
+- **stance leg knee の伸展ロックには PD ligament が必要**: 純粋な URDF joint
+  limit (lower=0) だけでは shin の重力モーメントで膝が屈曲方向に折れる。
+- **swing leg knee の屈曲は重力でも起きない場合がある**: swing hip が後傾
+  しているとき、shin の重力モーメントは knee を伸展側に押す。動物の歩行で
+  swing knee が屈曲するのは、hip が前進する間に shin が後ろに残る慣性結合
+  によるもの。Genesis のシミュレーションではこの結合が弱く、結果として
+  両脚伸展状態に固まる場合が多い。
+- **stance flip (heel-strike) を起こすには「swing leg が前方に振り出される」
+  動作が要**: 観察では swing leg が後方に残ったまま体だけ前傾し、結果として
+  stance 側の足が常に下にあって flip が起きない試行が多かった。
+- **Phase 3 (MAP-Elites) で「basin の探索」自体を行うのが筋**: ぽんぽこ殿の
+  研究目的「設計空間の地図」と直結する。Phase 2 ではそのインフラを整備する。
 
 ### 注意点
 
-- 膝のロック機構の実装方法は Genesis API で複数の選び方がある（コンタクト + フリー関節 / プログラム的にロック切替 など）。**Claude Code は実装前に方式の選択肢を提示すること。**
-- Phase 3で MAP-Elites に渡すため、評価関数は **副作用なし・状態を持たない** 純関数として書く。
-
-### このフェーズで決めること
-
-- WalkerParams の最終形（Phase 3でこれが Genotype になる）
-- WalkResult に含める情報（Phase 3 で Behavior Descriptor 計算に使う）
+- 膝のロック機構の実装方法は Genesis API で複数選択肢がある。Phase 2 で
+  PD ligament 方式を採用したが、Phase 3 で挙動を見ながら再検討の余地あり。
+- Phase 3 で MAP-Elites に渡すため、評価関数は **副作用なし・状態を持たない**
+  純関数として書く (2.4 で実装)。
 
 ---
 
