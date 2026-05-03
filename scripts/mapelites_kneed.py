@@ -272,6 +272,13 @@ def parse_args() -> argparse.Namespace:
         "Heron-style multiprocess + single-walker pattern (see GENESIS_BEST_PRACTICES.md). "
         "Use 'metal' only if you also adopt batched envs (scene.build(n_envs=N)).",
     )
+    parser.add_argument(
+        "--maxtasks",
+        type=int,
+        default=50,
+        help="multiprocessing maxtasksperchild — recycle worker after N tasks to "
+        "avoid Genesis CPU-backend memory leak that segfaults around iter 10-20.",
+    )
     return parser.parse_args()
 
 
@@ -346,6 +353,7 @@ def main() -> None:
             processes=args.n_procs,
             initializer=_worker_init,
             initargs=(args.backend,),
+            maxtasksperchild=args.maxtasks,
         )
 
     eval_log: list[dict] = []
