@@ -17,6 +17,7 @@
 3. **Joint genotype (設計 + 初期条件) が basin 発見の鍵**。設計のみ固定 IC では生存率 0%、設計 + IC で 6-50% 生存。
 4. **Objective 設計の落とし穴**: 距離だけ最大化すると「滑り個体」が「歩行個体」より高評価になる。生存条件 (`min_flips ≥ 2`) 必須。
 5. **ぽんぽこ殿の経験的直感は論文表現と一致するレベル**。「安定しすぎが違和感」「振り子は本来質点集中型」「環境を振って robust 化」など、すべて受動歩行・QD 文献の主張と整合。
+6. **【補足調査で判明】Heron の Genesis 並列化 (multiprocess + MPS) は anti-pattern**。Genesis の正解は `scene.build(n_envs=N)` の batched envs。さらに M4 Pro での single-walker sampling では **CPU backend の方が MPS より 6.8倍速い** (詳細: `GENESIS_BEST_PRACTICES.md`)。
 
 ---
 
@@ -131,11 +132,25 @@
 | 多リンク剛体構築 | URDF / MJCF ファイル経由のみ。手続き的 API なし |
 | Apple Metal | M4 Pro Mac mini で問題なく動作、MPS GPU 利用 |
 | Constraint solver | デフォルトの Newton で受動歩行に十分、`constraint_timeconst` 等のチューニングは大きい変化を生まない |
-| 並列化 | MPS GPU は 1 個、N proc が共有 → CPU 50% は normal、各 sim wall は並列度に応じて 12s → 17s 程度に伸びる |
+| 並列化 (誤解していた点) | **Heron の multiprocess + 1 sim per process は anti-pattern**。Genesis の正しい並列化は `scene.build(n_envs=N)` の batched envs。MPS の真価はここで発揮される (1 process で 4096 envs 等) |
+| backend 選択 (重要) | **single-walker sampling では CPU backend が MPS より 6.8倍速い** (M4 Pro 実測)。MPS dispatch overhead > batched 並列ベネフィット。詳細は `GENESIS_BEST_PRACTICES.md` |
+| Per-env パラメータ | `set_mass(envs_idx=...)`, `set_mass_shift(...)`, `set_dofs_position(envs_idx=...)` 等で env ごとに質量・初期条件を変えられる。**MAP-Elites も batched envs で実装可能** (形状以外は) |
 | 視覚化 | `scene.build()` が pyglet を強制初期化、ヘッドレス Mac で破綻 (workaround で対処) |
 | `set_dofs_position` | デフォルト `zero_velocity=True` で他 DOF の velocity を 0 にしてしまう罠あり、毎ステップ呼ぶ場合は `False` 明示必須 |
 | `control_dofs_force` | URDF の `<limit ... effort="0"/>` だと無効化される、effort 上限を上げる必要 |
 | Joint 初期化 | URDF root link はデフォルトで free base、`fixed=True` で固定可能 |
+
+### Backend / 並列化ベンチ (補足調査、2026-05-03)
+
+50 サンプル × 2 秒シミュ、M4 Pro での実測：
+
+| Bench | backend | n_procs | wall | per-sim | 倍率 |
+|---|---|---|---|---|---|
+| A | MPS | 10 | 66.2s | 12.6s | 1.0x (Heron Phase 2.6 構成) |
+| B | CPU | 1 | 40.2s | 0.80s | 1.6x |
+| **C** | **CPU** | **10** | **9.8s** | **1.36s** | **6.8x ★** |
+
+含意: **Phase 3 で苦労した「1000 evals に 23 分」は backend を CPU に切り替えるだけで 約 2.3 分に短縮できる**。Heron 再開時の即効施策として最有力。
 
 ### pyribs (ribs) の実用知見
 
@@ -182,11 +197,16 @@
 2. **dataclass → URDF テンプレ → tempfile → URDF morph パターン** (Phase 1)
    - モジュラーロボの「モジュール組み合わせ」を URDF テンプレで生成可能
 3. **`simulate(params, ic, cfg) -> WalkResult` の pure function 化** (Phase 2.4)
-4. **`multiprocessing.Pool` + `imap_unordered` + spawn context での並列評価** (Phase 2.6、5-10x speedup)
+4. **`multiprocessing.Pool` + `imap_unordered` + spawn context での並列評価** (Phase 2.6、5-10x speedup) — **ただし backend は CPU 推奨** (補足調査参照)
 5. **trajectory.jsonl + meta.json + mp4 のログフォーマット** (Phase 1.5)
 6. **MAP-Elites の Joint Genotype + Behavior Descriptor 設計** (Phase 3)
 7. **GA + CMA-ES の 2 段階探索戦略** (project memory `project_emitter_strategy`)
 8. **objective 設計の罠回避** (生存条件、`flip_bonus`、`pitched_over` 検出など)
+9. **【補足】Genesis backend 選択の判断ツリー** (`GENESIS_BEST_PRACTICES.md` 参照):
+   - 単発 sim・デバッグ → CPU backend、1 process
+   - 進化アルゴリズム評価 (100-10000 evals) → **CPU backend + multiprocess** (Heron 構成に backend だけ切替)
+   - RL 学習 (PPO 等) → MPS/CUDA + `scene.build(n_envs=4096)`、multiprocess 不要
+   - Multi-GPU 機 → `torch.distributed` + DDP + NCCL
 
 ### 検討時の注意 (Heron で踏んだ罠)
 
@@ -194,7 +214,9 @@
 - **headless Mac での visualizer 問題**を早期に対処 (issue #11 の workaround)
 - **objective を素朴に距離最大化すると意図しない最適化に行く** (滑り、空中バタつき、横転、etc.) → 生存条件と Behavior Descriptor を入念に設計
 - **emitter 戦略は問題の basin 構造に依存** = 早期に少数評価でスモークテストして判断
-- **MPS GPU 共有でシステム CPU は 50% が normal** = それで嘆かず GPU 待ちを認識
+- **【訂正】MPS GPU 共有で CPU 50% は normal** ではなく、**Heron の使い方が anti-pattern だった**。Genesis の MPS は batched envs (`n_envs=N`) で 1 process が前提。multiprocess + 1 sim per proc は MPS dispatch overhead で逆に遅くなる。次プロジェクトでは:
+  - 単発・小規模並列 → CPU backend (MPS より 6.8倍速、Bench C 実測)
+  - 大規模 (n_envs=数千-数万) → MPS で batched envs 1 process
 - **set_dofs_position の zero_velocity=True 罠** に注意
 
 ### モジュラーレスキューロボの推察 (基礎情報なしの予想)
@@ -207,12 +229,20 @@
 
 ---
 
+## 関連ドキュメント
+
+- `GOALS.md` — Phase 0-2 の目標 (再設定後の完了条件)
+- `GOALS_NEXT.md` — Phase 3 の目標と進捗
+- `DESIGN.md` — ディレクトリ・主要抽象化
+- `README.md` — プロジェクト概要
+- **`GENESIS_BEST_PRACTICES.md`** — Genesis 並列化・backend 選択の調査 (補足調査)
+
 ## 謝辞
 
 ぽんぽこ殿の経験知 (受動歩行 20年研究、四足検討、偶蹄類/奇蹄類への興味、靱帯 + ダンパーの記憶、振り子の質点集中の物理的直感、GA でのスイートスポット問題と環境振り対策、CMA-ES と GA の使い分け感覚) のおかげで、Heron は単なる「Genesis で歩かせる」プロジェクトを超えて、**現代 QD 手法と古典受動歩行研究の橋渡し** として価値ある記録になった。
 
-未解決の「2 歩の壁」も、技術的問題ではなく **「basin が物理的に存在するために必要な要素 (rocker foot + 質点振り子 + 機械的 knee latch)」が部分的にしか入ってない** という診断が立った点で、研究的に意味のある観察です。
+未解決の「2 歩の壁」も、技術的問題ではなく **「basin が物理的に存在するために必要な要素 (rocker foot + 質点振り子 + 機械的 knee latch)」が部分的にしか入ってない** という診断が立った点で、研究的に意味のある観察です。加えて、**「CPU 50% が気になる」というぽんぽこ殿の指摘から Genesis の正しい並列化パターンを発見** (補足調査) できたのも、休止の最後に得られた重要な収穫でした。
 
 モジュラーレスキューロボでも、Heron で蓄積したパターン・教訓が活きることを願ってますー。
 
-—Claude (claude-opus-4-7) と一緒に、2026-05-02 〜 05-03
+—Claude (claude-opus-4-7) と一緒に、2026-05-02 〜 05-03 (補足調査含む)
