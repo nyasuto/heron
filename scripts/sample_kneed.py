@@ -77,8 +77,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--n-procs",
         type=int,
-        default=8,
-        help="Worker processes (spawn-context). 1 = sequential in-process.",
+        default=10,
+        help="Worker processes (spawn-context, default 10 = M4 Pro performance cores). "
+        "1 = sequential in-process.",
     )
     return parser.parse_args()
 
