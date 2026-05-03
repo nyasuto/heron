@@ -230,20 +230,38 @@ def simulate(
         stance_left_count = 0
         n_stance_flips = 0
         stance_is_left = True
+        # Ground-proximity gate: candidate stance foot must be near the floor.
+        # Foot is a sphere of radius foot_radius sitting on z=0, so its center sits
+        # at z = foot_radius when grounded. Allow a few mm of slack.
+        ground_z = params.foot_radius + 0.005
 
         t0 = time.perf_counter()
         for i in range(n_steps):
             left_foot_z = float(left_foot_link.get_pos()[2].cpu())
             right_foot_z = float(right_foot_link.get_pos()[2].cpu())
-            diff = left_foot_z - right_foot_z
-            new_stance_is_left = stance_is_left
-            if stance_is_left and diff > stance_flip_threshold:
-                new_stance_is_left = False
-            elif (not stance_is_left) and diff < -stance_flip_threshold:
-                new_stance_is_left = True
-            if new_stance_is_left != stance_is_left:
-                n_stance_flips += 1
-                stance_is_left = new_stance_is_left
+            hip_z_now = float(walker.get_dofs_position(dofs_idx_local=vz)[0].cpu())
+
+            # Stop counting flips once the walker has fallen — the airborne-flapping
+            # bounce after a crash is what drove the original overcount.
+            not_fallen = hip_z_now >= cfg.fall_z_threshold
+
+            if not_fallen:
+                diff = left_foot_z - right_foot_z
+                new_stance_is_left = stance_is_left
+                # When considering a flip, also require the candidate (new) stance foot
+                # to actually be on the ground; otherwise the "flip" is just two
+                # airborne feet swapping which one is lower.
+                if stance_is_left and diff > stance_flip_threshold and right_foot_z < ground_z:
+                    new_stance_is_left = False
+                elif (
+                    (not stance_is_left)
+                    and diff < -stance_flip_threshold
+                    and left_foot_z < ground_z
+                ):
+                    new_stance_is_left = True
+                if new_stance_is_left != stance_is_left:
+                    n_stance_flips += 1
+                    stance_is_left = new_stance_is_left
 
             stance_knee_dof = kl if stance_is_left else kr
             qk = float(walker.get_dofs_position(dofs_idx_local=stance_knee_dof)[0].cpu())
