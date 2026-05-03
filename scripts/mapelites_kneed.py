@@ -9,8 +9,13 @@ Behavior Descriptor (B1', see GOALS_NEXT.md):
   - y: energy efficiency [m/J] = distance / (m_total * g * sin(slope))
 
 Genotype (12 dims, normalized to [0, 1]):
-  Design (6): thigh_length, shin_length, thigh_mass, shin_mass, hip_mass, knee_damping
-  IC      (6): stance_q, swing_q, stance_qdot, swing_qdot, swing_knee_q, swing_knee_qdot
+  Design (6): thigh_length, shin_length, thigh_mass, shin_mass,
+              hip_mass, knee_damping
+  IC      (6): stance_q, swing_q, stance_qdot, swing_qdot,
+              swing_knee_q, swing_knee_qdot
+  (foot_mass / foot_radius are held fixed at KneedParams defaults; the
+   pendulum hypothesis from issue #10 will be re-tested after pure-GA
+   baselines confirm survival behavior.)
 
 Usage:
     # 2 emitters x batch 5 = 10 evals/iter (matches default --n-procs 10)
@@ -35,7 +40,7 @@ matplotlib.use("Agg")  # headless
 import matplotlib.pyplot as plt
 import numpy as np
 from ribs.archives import GridArchive
-from ribs.emitters import EvolutionStrategyEmitter, GaussianEmitter
+from ribs.emitters import EvolutionStrategyEmitter, GaussianEmitter, IsoLineEmitter
 from ribs.schedulers import Scheduler
 
 from heron.walker.kneed import (
@@ -48,10 +53,18 @@ from heron.walker.kneed import (
 # Stage 1 joint Genotype: 6 design dims + 6 IC dims = 12 dims (see issue #8).
 # Design dims (0-5) match Phase 2.5 sample_params ranges; IC dims (6-11) match
 # Phase 2.5 sample_ic ranges (those are the conditions where 8% survived).
+# (foot_mass / foot_radius held fixed at KneedParams defaults pending issue #10
+# re-test; pure-GA baseline first to isolate the emitter effect from the
+# foot-pendulum hypothesis.)
 GENOTYPE_NAMES = (
-    "thigh_length", "shin_length", "thigh_mass", "shin_mass", "hip_mass", "knee_damping",
-    "stance_q", "swing_q", "stance_qdot", "swing_qdot", "swing_knee_q", "swing_knee_qdot",
+    "thigh_length", "shin_length", "thigh_mass", "shin_mass",
+    "hip_mass", "knee_damping",
+    "stance_q", "swing_q", "stance_qdot", "swing_qdot",
+    "swing_knee_q", "swing_knee_qdot",
 )  # fmt: skip
+# 12-dim Genotype (foot_mass / foot_radius temporarily reverted to fixed values
+# to isolate the effect of pure-GA emitters from the foot-pendulum hypothesis;
+# see issue #10 for the foot-mass exploration to be reintroduced after baseline).
 GENOTYPE_LOWS = np.array([0.3, 0.3, 1.5, 1.0, 5.0, 0.1, 0.10, -0.40, -2.0, -1.5, 0.0, -1.0])
 GENOTYPE_HIGHS = np.array([0.7, 0.7, 4.0, 3.5, 20.0, 1.0, 0.30, -0.15, -0.5, 0.5, 0.6, 0.5])
 SOLUTION_DIM = len(GENOTYPE_NAMES)
@@ -94,35 +107,71 @@ def total_mass(p: KneedParams) -> float:
 
 
 def evaluate_one(
-    args: tuple[int, np.ndarray, float, float],
+    args: tuple[int, np.ndarray, float, float, float, float, int],
 ) -> tuple[int, float, float, float, dict]:
-    """Run simulate() for one joint Genotype. Returns (idx, objective, speed, efficiency, info)."""
-    idx, x, slope_deg, seconds = args
-    params, ic = normalize_to_params_and_ic(x, slope_deg)
-    cfg = SimConfig(
-        dt=0.001,
-        seconds=seconds,
-        record_video=False,
-        record_trajectory=False,
-    )
-    result = simulate(params, ic, cfg)
+    """Run simulate() for one joint Genotype. Returns (idx, objective, speed, efficiency, info).
 
-    if result.fell:
-        # Fallen designs are reported with measures outside the archive bounds
-        # so pyribs treats them as out-of-range and skips insertion. We still
-        # need a finite objective; use a small negative value.
-        return (idx, -1.0, -1.0, -1.0, {"fell": True})
+    Survival is conditional on actually walking: result is treated as fallen if any of
+      - simulate's hip_z fall detection triggers
+      - |final_pitch| exceeds max_pitch_rad (covers horizontal slipping)
+      - n_stance_flips < min_flips (covers "took 0-1 steps then slid forever")
+    The min_flips gate is the dominant fix from issue #9 — without it CMA-ES kept
+    converging on long-distance slipping individuals over actual walkers.
 
-    speed = result.distance / result.sim_seconds
+    All simulate() exceptions are caught and reported as fell=True so a single
+    bad parameter combination doesn't take down the worker pool.
+    """
+    idx, x, slope_deg, seconds, flip_bonus, max_pitch_rad, min_flips = args
+    try:
+        params, ic = normalize_to_params_and_ic(x, slope_deg)
+        cfg = SimConfig(
+            dt=0.001,
+            seconds=seconds,
+            record_video=False,
+            record_trajectory=False,
+        )
+        result = simulate(params, ic, cfg)
+    except Exception as e:
+        return (idx, -1.0, -1.0, -1.0, {"fell": True, "error": type(e).__name__})
+
+    pitched_over = abs(result.final_pitch) > max_pitch_rad
+    insufficient_flips = result.n_stance_flips < min_flips
+    fell = result.fell or pitched_over or insufficient_flips
+
+    if fell:
+        # Out-of-range measures so pyribs filters this out of the archive.
+        return (
+            idx,
+            -1.0,
+            -1.0,
+            -1.0,
+            {
+                "fell": True,
+                "pitched_over": pitched_over,
+                "insufficient_flips": insufficient_flips,
+                "distance": result.distance,
+                "n_stance_flips": result.n_stance_flips,
+            },
+        )
+
+    # Mild flip bonus on top of the survival gate; same distance, more flips => elite.
+    base_distance = result.distance
+    objective = base_distance * (1.0 + flip_bonus * result.n_stance_flips)
+
+    # Behavior Descriptor uses raw distance (no flip bonus), so the archive cells
+    # still represent (speed, efficiency) in physical units.
+    speed = base_distance / result.sim_seconds
     energy_input = total_mass(params) * GRAVITY * math.sin(math.radians(slope_deg))
-    efficiency = result.distance / energy_input if energy_input > 0 else 0.0
+    efficiency = base_distance / energy_input if energy_input > 0 else 0.0
     info = {
         "fell": False,
-        "distance": result.distance,
+        "pitched_over": False,
+        "distance": base_distance,
         "n_stance_flips": result.n_stance_flips,
         "wall_seconds": result.wall_seconds,
+        "final_pitch": result.final_pitch,
     }
-    return (idx, result.distance, speed, efficiency, info)
+    return (idx, objective, speed, efficiency, info)
 
 
 def _worker_init() -> None:
@@ -137,22 +186,60 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=5,
-        help="Per-emitter batch size. Default 5 × (gaussian + 1 ES) = 10 evals/iter, "
-        "matches default --n-procs 10 to keep workers fully busy.",
+        default=4,
+        help="Per-emitter batch size. Default 4 × 3 emitters (gaussian + ES + iso-line) "
+        "= 12 evals/iter; with --n-procs 10 you'll see slight pool-idle but the GA "
+        "diversity wins for basin discovery.",
     )
     parser.add_argument("--n-emitters", type=int, default=1, help="EvolutionStrategy emitters")
     parser.add_argument(
-        "--sigma0", type=float, default=0.30, help="Initial sigma for both emitters"
+        "--n-iso-line",
+        type=int,
+        default=1,
+        help="IsoLineEmitter count (Vassiliades 2018 GA-style: crossover + mutation)",
+    )
+    parser.add_argument(
+        "--sigma0", type=float, default=0.30, help="Initial sigma for Gaussian + ES emitters"
+    )
+    parser.add_argument(
+        "--iso-sigma",
+        type=float,
+        default=0.05,
+        help="Iso-line emitter mutation sigma (default 0.05 = ~1.5%% per dim)",
+    )
+    parser.add_argument(
+        "--line-sigma",
+        type=float,
+        default=0.20,
+        help="Iso-line emitter crossover blend sigma (default 0.20 from the paper)",
     )
     parser.add_argument(
         "--no-gaussian",
         action="store_true",
-        help="Disable the broad-sampling GaussianEmitter (CMA-ES only)",
+        help="Disable the broad-sampling GaussianEmitter",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--seconds", type=float, default=3.0)
     parser.add_argument("--slope-deg", type=float, default=3.0)
+    parser.add_argument(
+        "--flip-bonus",
+        type=float,
+        default=1.0,
+        help="Objective multiplier per stance flip: obj = dist * (1 + flip_bonus * flips)",
+    )
+    parser.add_argument(
+        "--max-pitch-rad",
+        type=float,
+        default=math.pi / 2,
+        help="Walker is treated as fallen if |final pitch| exceeds this (default pi/2)",
+    )
+    parser.add_argument(
+        "--min-flips",
+        type=int,
+        default=2,
+        help="Minimum n_stance_flips required for an individual to be considered alive. "
+        "Below this, the run is treated as fallen so the archive only fills with walkers.",
+    )
     parser.add_argument(
         "--n-procs",
         type=int,
@@ -201,12 +288,25 @@ def main() -> None:
                 seed=args.seed + 100 + i,
             )
         )
+    for i in range(args.n_iso_line):
+        emitters.append(
+            IsoLineEmitter(
+                archive,
+                iso_sigma=args.iso_sigma,
+                line_sigma=args.line_sigma,
+                x0=x0_center,
+                lower_bounds=sol_lower,
+                upper_bounds=sol_upper,
+                batch_size=args.batch_size,
+                seed=args.seed + 200 + i,
+            )
+        )
     scheduler = Scheduler(archive, emitters)
 
     print(f"[heron] MAP-Elites: dim={SOLUTION_DIM}, archive={BD_DIMS}, ranges={BD_RANGES}")
     print(
         f"[heron] emitters: {len(emitters)} (gaussian={not args.no_gaussian}, "
-        f"es={args.n_emitters}) x batch_size {args.batch_size} "
+        f"es={args.n_emitters}, iso-line={args.n_iso_line}) x batch_size {args.batch_size} "
         f"= {len(emitters) * args.batch_size} evals/iter"
     )
     print(f"[heron] target {args.iterations} iters, {args.n_procs} procs, output -> {out_dir}")
@@ -226,7 +326,18 @@ def main() -> None:
     try:
         for itr in range(args.iterations):
             solutions = scheduler.ask()
-            tasks = [(i, sol, args.slope_deg, args.seconds) for i, sol in enumerate(solutions)]
+            tasks = [
+                (
+                    i,
+                    sol,
+                    args.slope_deg,
+                    args.seconds,
+                    args.flip_bonus,
+                    args.max_pitch_rad,
+                    args.min_flips,
+                )
+                for i, sol in enumerate(solutions)
+            ]
 
             # imap_unordered: workers pull next task as soon as they're free.
             # Results come back unordered; we re-sort by idx before telling pyribs.
@@ -246,7 +357,7 @@ def main() -> None:
             scheduler.tell(objectives, measures)
 
             for sol, r in zip(solutions, results, strict=True):
-                _idx, obj, speed, eff, info = r  # type: ignore[misc]
+                _, obj, speed, eff, info = r  # type: ignore[misc]
                 if info["fell"]:
                     fell_count += 1
                 else:
