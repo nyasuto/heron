@@ -1,0 +1,50 @@
+source: data/runs/20260503_185948_mapelites
+=== Heron Phase 3 BEST WALKING INDIVIDUAL (iter=32) ===
+{
+  "iter": 32,
+  "solution": [
+    1.0,
+    0.24868789504055538,
+    0.46681175224082977,
+    0.41300035352615283,
+    0.9593061574112979,
+    0.4585808216594237,
+    1.0,
+    0.7248086767124304,
+    0.0,
+    0.13232427233883592,
+    0.9548398668691604,
+    0.4860226142969696
+  ],
+  "params": {
+    "thigh_length": 0.7,
+    "shin_length": 0.39947515801622213,
+    "thigh_radius": 0.02,
+    "shin_radius": 0.02,
+    "thigh_mass": 2.6670293806020746,
+    "shin_mass": 2.032500883815382,
+    "hip_mass": 19.38959236116947,
+    "foot_radius": 0.03,
+    "foot_mass": 0.001,
+    "knee_limit_upper": 2.5,
+    "knee_damping": 0.5127227394934813,
+    "slope_deg": 3.0
+  },
+  "ic": {
+    "stance_q": 0.3,
+    "swing_q": -0.21879783082189241,
+    "stance_qdot": -2.0,
+    "swing_qdot": -1.2353514553223282,
+    "swing_knee_q": 0.5729039201214963,
+    "swing_knee_qdot": -0.2709660785545456
+  },
+  "objective": 17.15060520172119,
+  "speed": 0.9528114000956217,
+  "efficiency": 0.19337820062174557,
+  "fell": false,
+  "pitched_over": false,
+  "distance": 2.8584342002868652,
+  "n_stance_flips": 5,
+  "wall_seconds": 0.9461488329998247,
+  "final_pitch": -0.1765417754650116
+}

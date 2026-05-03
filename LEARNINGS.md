@@ -4,9 +4,10 @@
 でリバイバルした 2 日間プロジェクトの記録と学び。
 
 **期間:** 2026-05-02 〜 2026-05-03 (2 日)
-**完了 Phase:** 0-2 (完了条件再設定後)、Phase 3 は途中まで
-**ステータス:** 一旦休止。ぽんぽこ殿の関心はモジュラーレスキューロボへ。
-**コミット数:** 18、**issues:** 11 件 (5 closed / 6 open)
+**完了 Phase:** 0-3 (Phase 3 は最終評価で区切り)
+**ステータス:** 最終評価完了。次プロジェクト (モジュラーレスキューロボ) へ。
+**コミット数:** 22+、**issues:** 13 件 (6 closed / 7 open)
+**最終ベスト個体:** v18 iter=32, **flips=5, distance 2.86m, 歩幅 0.57m/歩** (本物の歩行と判定)
 
 ---
 
@@ -104,13 +105,21 @@
 
 ぽんぽこ殿が経験的に整理した「**幅広探索 (GA) で basin 発見 → CMA-ES で絞り込み**」は CMA-ME (Fontaine 2020) の標準パターンと一致。
 
-**「2 歩の壁」未解決問題:**
-- emitter (CMA-ES / pure GA / hybrid) も集団サイズ (12 / 100) も振っても **max flips=2 が一貫した上限**
-- v1〜v13 の 13 試行でいずれも頭打ち
-- 推測される根本原因:
-  - **振り子モデル**: 現状 foot=1g は「棒振り子」、本来は「質点振り子」(振り子先端に質量集中) が必要 (ぽんぽこ殿のひらめき、issue #10)
-  - **rocker foot 形状**: McGeer 元論文では円弧足、Genesis 球接触では再現困難 (issue #3)
-  - **PD ligament の散逸量過剰**: heel-strike エネルギーが残らない可能性
+**「2 歩の壁」未解決 → 最終的に max flips=5 まで突破:**
+- v1〜v13 (Python 3.12 + MPS backend) では emitter / 集団サイズを振っても **max flips=2 が一貫した上限**
+- ブレイクスルーは **CPU backend への切替** (補足調査の発見、smoke v14): per-eval が 1.77s → 0.14s (12.6x speedup)
+- v17 (CPU + 3000 evals) で **max flips=4 突破** (8 個体)、v18 (10000 evals) で **max flips=5 達成** (7 個体)
+- 最終ベスト (iter=32): flips=5, distance 2.86m, 歩幅 0.57m/歩 = 本物の歩行 (動画判定)
+
+**Phase 3 v18 最終結果**:
+- 評価数 10,000 / 生存率 12.1% / archive 27 elites (6.8% coverage) / qd_score 214.75 / obj_max 18.30
+- 1477s wall (約 24分) on M4 Pro 10 procs (CPU backend)
+- punctuated equilibrium が観察された (4-5 段階の jump、各 20-30 iter プラトー後にバーン)
+
+**ぽんぽこ殿の動画判定で見えた「歩行 vs バネ」問題 (issue #13)**:
+- 同じ flips=5 でも「本物歩行 (iter=32)」と「バネ前進 (iter=71, 96)」が混在
+- 数値だけでは区別不能 = LLM の限界 (memory: feedback_embodiment_gap)
+- 根本原因仮説: knee_damping 不足、rocker foot 不在、bouncy contact
 
 **振り子仮説の試行と失敗:**
 - foot_mass を Genotype に追加 (issue #10、smoke v7-v10)
@@ -120,6 +129,10 @@
 **ヘッドレス Mac の壁 (issue #11):**
 - Mac mini が画面ロック / display sleep の時、Genesis の `scene.build()` が pyglet の `cocoa.get_default_screen()` で `IndexError` で死亡
 - Workaround: `Visualizer.build()` を no-op 化する monkey-patch (record_video=False の場合のみ)
+
+**メモリリーク → seg fault 対処 (smoke v18 段階):**
+- CPU backend で 1000 evals を超えると Genesis 内部のメモリリークで seg fault
+- Workaround: `multiprocessing.Pool(maxtasksperchild=50)` で worker を定期再起動
 
 ---
 
@@ -180,12 +193,13 @@
 
 | # | タイトル | 状態 |
 |---|---|---|
-| #3 | rocker foot 物理実装 (curved cylinder) | 未着手、Phase 3 で再注目された候補 |
-| #4 | Phase 3 1000-10000 evals 本走 | 1000 evals 単発で実施、本格 archive 充填は未到達 |
+| #3 | rocker foot 物理実装 (curved cylinder) | 未着手、issue #13 (バネ抑制) でも再言及 |
+| #4 | Phase 3 1000-10000 evals 本走 | **v18 で 10000 evals 完了**、archive 27 elites |
 | #8 | Two-stage Robust Co-design (Stage 2 IC perturbation) | Stage 1 のみ実装、Stage 2 未着手 |
 | #10 | foot_mass を Genotype に (range 再キャリブレーション要) | 試行 v7-v10 で 0% 失敗、IC 同時調整が必要 |
 | #11 | Headless Mac での visualizer 初期化 | workaround あり、根本対処は未 |
-| (新) | max flips=2 の壁の根本解明 | 未 issue 化、上記 #3, #10 と関連 |
+| #12 | 歩幅 (stride) を Behavior Descriptor に | 「足踏み vs 歩行」分離用、未着手 |
+| #13 | バネ前進の抑制 (objective + 物理) | **最終評価で発覚した課題**、Phase 3 v18 の elite 3 個中 2 個がバネ判定 |
 
 ---
 
