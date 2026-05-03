@@ -85,6 +85,7 @@ class SimConfig:
     knee_kd: float = 20.0
     plane_friction: float | None = None
     log_every: int = 1
+    record_trajectory: bool = True  # set False during batched sampling to save memory
     record_video: bool = False
     output_dir: Path | None = None  # for mp4 only; trajectory is in-memory
     fall_z_threshold: float = 0.3  # hip_z below this counts as fallen
@@ -256,7 +257,7 @@ def simulate(
 
             if cam is not None and i % render_every == 0:
                 cam.render()
-            if i % cfg.log_every == 0:
+            if cfg.record_trajectory and i % cfg.log_every == 0:
                 q = walker.get_dofs_position(dofs_idx_local=dofs_idx).cpu().numpy()
                 qd = walker.get_dofs_velocity(dofs_idx_local=dofs_idx).cpu().numpy()
                 trajectory.append(
