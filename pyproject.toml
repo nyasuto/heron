@@ -9,7 +9,7 @@ requires-python = ">=3.13"
 dependencies = [
     "genesis-world>=0.4.6",
     "ribs>=0.10.0",
-    "torch>=2.11.0",
+    "torch>=2.13.0",
 ]
 
 [build-system]
