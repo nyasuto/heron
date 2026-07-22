@@ -516,7 +516,7 @@ dev = [
 requires-dist = [
     { name = "genesis-world", specifier = ">=0.4.6" },
     { name = "ribs", specifier = ">=0.10.0" },
-    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torch", specifier = ">=2.13.0" },
 ]
 
 [package.metadata.requires-dev]
