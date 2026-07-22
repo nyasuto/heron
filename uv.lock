@@ -515,7 +515,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "genesis-world", specifier = ">=1.2.3" },
-    { name = "ribs", specifier = ">=0.10.0" },
+    { name = "ribs", specifier = ">=0.12.0" },
     { name = "torch", specifier = ">=2.13.0" },
 ]
 
@@ -1607,7 +1607,7 @@ wheels = [
 
 [[package]]
 name = "ribs"
-version = "0.10.0"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "array-api-compat" },
@@ -1621,9 +1621,9 @@ dependencies = [
     { name = "threadpoolctl" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5d/ea/12554600812a91a7bcd35246f17343842671d2a0522927268d66ed73833b/ribs-0.10.0.tar.gz", hash = "sha256:f0cb51d3cb7c5aac6a3228b7915dc7b8657fb192a1a0a8baf48c7348acbb498c", size = 192608, upload-time = "2026-04-08T00:38:36.275Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/81/b7/d7a2ccbd4935e4384819c936613e2c3016199379d6eacac353a08d264162/ribs-0.12.0.tar.gz", hash = "sha256:1c25935017d1af0f9b83192f0f3b0c303802ce817d0e9848cc1899657f95cb01", size = 215381, upload-time = "2026-07-22T09:22:00.547Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0d/09/9d44568014ca7f017a35a33c065182c447f87aa822c8b4d3f58026642167/ribs-0.10.0-py3-none-any.whl", hash = "sha256:227c70ddd609c5848c02662a49b6704bee067564f0a02bf1b67e04b8830e4d78", size = 213339, upload-time = "2026-04-08T00:38:34.97Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/0b/afc2321047d51801866370d12fea70c9961488b3f4fc232b93a6d8e12def/ribs-0.12.0-py3-none-any.whl", hash = "sha256:ed2b7d0aef35b23410ebf9ca57e03173e3e1384ce7344a0b77e978f4f15321e6", size = 230704, upload-time = "2026-07-22T09:21:59.154Z" },
 ]
 
 [[package]]
