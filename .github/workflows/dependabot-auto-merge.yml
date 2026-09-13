@@ -1,0 +1,65 @@
+name: Dependabot Auto-merge
+
+# Why this exists
+# ---------------
+# Enabling "Allow auto-merge" in the repository settings does nothing on its own:
+# somebody still has to press the button on each pull request. Without that, low-risk
+# dependency bumps sit open for weeks, and once they do, PRs that touch the same
+# lockfile start conflicting with each other, so the queue never drains.
+#
+# This workflow arms GitHub's own auto-merge on the bumps that carry no API change,
+# so they land as soon as the required checks pass. Anything that can change
+# behaviour -- a major bump, or a minor bump of a runtime dependency -- is
+# deliberately left for a human to review and merge.
+#
+# Two things must be true for this to be a real gate rather than an instant merge:
+#   1. "Settings -> General -> Allow auto-merge" is enabled on this repository.
+#   2. This repository's CI job is a required status check on the default branch.
+# Without (2), an armed pull request merges immediately without waiting for CI.
+
+on: pull_request
+
+# Dependabot-triggered runs get a read-only token by default; granting these two
+# scopes at the workflow level is what lets the run arm auto-merge. Using
+# `pull_request` (not `pull_request_target`) keeps the untrusted branch from ever
+# executing with these permissions.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Arm auto-merge
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Patch bumps, and minor bumps of tooling that never ships to users, are the
+      # updates that gain nothing from a manual review. Everything else falls through.
+      - name: Arm auto-merge
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          (steps.metadata.outputs.update-type == 'version-update:semver-minor' &&
+           steps.metadata.outputs.dependency-type == 'direct:development')
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A major bump can break the build in ways CI does not always catch, so say so
+      # on the PR rather than leaving the author to guess why it was not picked up.
+      - name: Flag major bumps for manual review
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "Auto-merge was not armed: this is a major version bump (\`${DEP_NAMES}\`). Please review and merge manually."
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          DEP_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
